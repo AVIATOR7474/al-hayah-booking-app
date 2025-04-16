@@ -16,7 +16,9 @@ from PIL import Image
 # Add the current directory to the path to import local modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from sheets_integration import SheetsIntegration
-from assets.logo import get_logo_as_base64
+
+# Import logo utilities from the root directory instead of assets folder
+from logo_utils import get_logo_as_base64
 
 # Set page configuration
 st.set_page_config(
@@ -495,106 +497,102 @@ def display_edit_form():
         
         if appointment:
             st.markdown(f"### Edit Appointment")
-            st.markdown("Update the appointment details below.")
+            st.markdown("Update the details below and click 'Update Appointment' to save changes.")
             
             # Create a form
             with st.form(key="edit_form"):
                 # Company details
-                company_name = st.text_input("Company Name", value=appointment['Company Name'], key="edit_company_name")
-                project_name = st.text_input("Project Name", value=appointment['Project Name'], key="edit_project_name")
-                area = st.text_input("Area/Location", value=appointment['Area'], key="edit_area")
-                representative = st.text_input("Developer Representative Name", value=appointment['Developer Representative'], key="edit_representative")
+                company_name = st.text_input("Company Name", value=appointment['Company Name'])
+                project_name = st.text_input("Project Name", value=appointment['Project Name'])
+                area = st.text_input("Area/Location", value=appointment['Area'])
+                representative = st.text_input("Developer Representative Name", value=appointment['Developer Representative'])
+                
+                # Get available dates for the dropdown
+                available_dates = get_available_dates(num_weeks=8)
+                
+                # Format dates for the dropdown
+                date_options = [format_date(date) for date in available_dates]
+                
+                # Add the current date to the options if it's not already there
+                current_date_obj = datetime.strptime(appointment['Presentation Date'], "%Y-%m-%d").date()
+                current_date_str = format_date(current_date_obj)
+                if current_date_str not in date_options:
+                    date_options.insert(0, current_date_str)
                 
                 # Date selection
-                st.markdown("### Select a New Date")
-                st.markdown("Presentations are available on **Saturdays** and **Tuesdays** at **12:00 PM** for 30 minutes.")
+                selected_date_str = st.selectbox("Presentation Date", date_options, index=date_options.index(current_date_str))
                 
-                # Get available dates
-                available_dates = get_available_dates(num_weeks=4)
-                
-                # Convert current date string to date object
-                current_date = datetime.strptime(appointment['Presentation Date'], "%Y-%m-%d").date()
-                
-                # Add current date to available dates if not already included
-                if current_date not in available_dates:
-                    available_dates.append(current_date)
-                    available_dates.sort()
-                
-                # Create a list of date strings for the selectbox
-                date_options = [format_date(date) for date in available_dates]
-                current_date_str = format_date(current_date)
-                
-                # Find the index of the current date
-                current_date_index = date_options.index(current_date_str) if current_date_str in date_options else 0
-                
-                # Display the selectbox
-                selected_date_str = st.selectbox(
-                    "Select Date",
-                    date_options,
-                    index=current_date_index,
-                    key="edit_date"
-                )
-                
-                # Convert selected date string back to date object
-                selected_date = available_dates[date_options.index(selected_date_str)]
-                
-                # Submit buttons
-                col1, col2 = st.columns(2)
-                with col1:
-                    cancel_button = st.form_submit_button("Cancel", type="secondary")
-                with col2:
-                    submit_button = st.form_submit_button("Update Appointment")
-                
-                if cancel_button:
-                    # Reset the edit appointment ID
-                    st.session_state.edit_appointment_id = None
-                    st.session_state.view = 'calendar'
-                    st.rerun()
+                # Submit button
+                submit_button = st.form_submit_button("Update Appointment")
                 
                 if submit_button:
                     # Validate form
                     if not company_name or not project_name or not area or not representative:
                         st.error("Please fill in all fields.")
                     else:
-                        # Format date for the sheet
-                        date_str = selected_date.strftime("%Y-%m-%d")
+                        # Parse the selected date
+                        try:
+                            selected_date_obj = datetime.strptime(selected_date_str, "%A, %d %B %Y").date()
+                            date_str = selected_date_obj.strftime("%Y-%m-%d")
+                        except:
+                            date_str = appointment['Presentation Date']
                         
-                        # Check if the date has changed
-                        is_rescheduled = date_str != appointment['Presentation Date']
+                        # Determine if this is a reschedule
+                        is_reschedule = date_str != appointment['Presentation Date']
                         
-                        # Update the appointment
-                        success = sheets.update_appointment(
-                            st.session_state.edit_appointment_id,
-                            company_name=company_name,
-                            project_name=project_name,
-                            area=area,
-                            presentation_date=date_str,
-                            developer_representative=representative,
-                            status="Rescheduled" if is_rescheduled else appointment['Status']
-                        )
+                        if is_reschedule:
+                            # Reschedule the appointment
+                            success = sheets.reschedule_appointment(
+                                st.session_state.edit_appointment_id,
+                                date_str,
+                                "12:00"
+                            )
+                        else:
+                            # Update the appointment
+                            success = sheets.update_appointment(
+                                st.session_state.edit_appointment_id,
+                                company_name=company_name,
+                                project_name=project_name,
+                                area=area,
+                                developer_representative=representative
+                            )
                         
                         if success:
                             # Show success message
                             st.session_state.show_success = True
-                            if is_rescheduled:
-                                st.session_state.success_message = f"Appointment rescheduled successfully to {format_date(selected_date)} at 12:00 PM."
-                            else:
-                                st.session_state.success_message = f"Appointment updated successfully."
+                            st.session_state.success_message = f"Appointment updated successfully."
                             
                             # Reset the edit appointment ID
                             st.session_state.edit_appointment_id = None
-                            st.session_state.view = 'calendar'
+                            
+                            # Go back to the appointments view
+                            st.session_state.view = 'appointments'
                             
                             # Rerun the app to update the UI
                             st.rerun()
                         else:
                             st.error("Failed to update appointment. Please try again.")
+            
+            # Cancel button
+            if st.button("Cancel", help="Cancel editing", type="secondary"):
+                # Reset the edit appointment ID
+                st.session_state.edit_appointment_id = None
+                
+                # Go back to the appointments view
+                st.session_state.view = 'appointments'
+                
+                # Rerun the app to update the UI
+                st.rerun()
         else:
             st.error("Appointment not found.")
             
             # Reset the edit appointment ID
             st.session_state.edit_appointment_id = None
-            st.session_state.view = 'calendar'
+            
+            # Go back to the appointments view
+            st.session_state.view = 'appointments'
+            
+            # Rerun the app to update the UI
             st.rerun()
 
 # Main application
@@ -614,31 +612,27 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        # Reset success message after displaying
+        # Reset the success message after displaying it
         st.session_state.show_success = False
+        st.session_state.success_message = ""
     
-    # Create tabs for different views
+    # Create tabs for booking and viewing appointments
     tab1, tab2 = st.tabs(["📅 Book Appointment", "📋 View Appointments"])
     
     with tab1:
-        # Calendar view
+        # Display calendar view
         display_calendar_view()
         
-        # Booking form
-        if st.session_state.selected_date:
-            display_booking_form()
+        # Display booking form if a date is selected
+        display_booking_form()
     
     with tab2:
-        # Appointments view
-        display_appointments()
-    
-    # Edit view (displayed outside tabs when active)
-    if st.session_state.view == 'edit':
-        display_edit_form()
-    
-    # Footer
-    st.markdown("---")
-    st.markdown("<p style='text-align: center;'>© 2025 Al-Hayah Real Estate Development Company</p>", unsafe_allow_html=True)
+        # Check if we're in edit mode
+        if st.session_state.view == 'edit':
+            display_edit_form()
+        else:
+            # Display all appointments
+            display_appointments()
 
 if __name__ == "__main__":
     main()
