@@ -13,7 +13,7 @@ import json
 import os
 
 class SheetsIntegration:
-    def __init__(self, credentials_path=None):
+    def __init__(self, credentials_path="C:\\Users\\DELL\\Documents\\Python\\Project\\al-hayah-booking-app\\credentials.json"):
         """
         Initialize the Google Sheets integration.
         
